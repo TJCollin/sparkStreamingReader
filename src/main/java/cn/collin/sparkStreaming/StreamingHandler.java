@@ -2,6 +2,8 @@ package cn.collin.sparkStreaming;
 
 import com.google.common.collect.Lists;
 import kafka.producer.KeyedMessage;
+import kafka.utils.Json;
+import net.sf.json.JSONArray;
 import net.sf.json.JSONObject;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaRDD;
@@ -28,6 +30,8 @@ public class StreamingHandler {
     static JSONObject results = new JSONObject();
     static long start = 0;
     static long end = 0;
+    static JSONArray missingData = new JSONArray();
+    static JSONObject j1 = new JSONObject();
 //    static int j = 0;
     public static void main(String[] args) {
         final Pattern SPACE = Pattern.compile(" ");
@@ -58,22 +62,24 @@ public class StreamingHandler {
         });
 
 
-        JavaPairDStream<Long, String> composeData = words.mapToPair(
-                new PairFunction<String, Long, String>() {
+        JavaPairDStream<String, String> composeData = words.mapToPair(
+                new PairFunction<String, String, String>() {
                     @Override
-                    public Tuple2<Long, String> call(String s) throws Exception {
+                    public Tuple2<String, String> call(String s) throws Exception {
 //                        System.out.println("j" + j++);
                         jsonObject = JSONObject.fromObject(s);
-                        Long  key = jsonObject.getLong("id");
-                        if (start == 0 && end == 0) {
-                            start = key;
-                            end = key;
-                        } else if (key > end) {
-                            end = key;
-                        } else if (key < start) {
-                            start = key;
+                        if (jsonObject.getInt("dataType") == 0){
+                            long  key = jsonObject.getLong("timestamp");
+                            if (start == 0 && end == 0) {
+                                start = jsonObject.getLong("timestamp");
+                                end = jsonObject.getLong("timestamp");
+                            } else if (key > end) {
+                                end = key;
+                            } else if (key < start) {
+                                start = key;
+                            }
                         }
-                        return new Tuple2<>(key, jsonObject.toString());
+                        return new Tuple2<>(jsonObject.getString("id"), jsonObject.toString());
                     }
         }).reduceByKey(new Function2<String, String, String>() {
             @Override
@@ -83,21 +89,82 @@ public class StreamingHandler {
                 JSONObject j3 = new JSONObject();
                 if (j1.getInt("dataType") == 0) {
                     Long interval = j2.getLong("timestamp") - j1.getLong("timestamp");
-                    j3.put("startTime", j1.getLong("id"));
+                    j3.put("startTime", j1.getLong("timestamp"));
                     j3.put("interval", interval);
                     j3.put("serverId", j1.getString("serverId"));
                 } else {
                     Long interval = j1.getLong("timestamp") - j2.getLong("timestamp");
-                    j3.put("startTime", j1.getLong("id"));
+                    j3.put("startTime", j1.getLong("timestamp"));
                     j3.put("interval", interval);
                     j3.put("serverId", j1.getString("serverId"));
                 }
                 list.add(j3);
+//                System.out.println("s = [" + s + "], s2 = [" + s2 + "]");
+//                System.out.println("j3:" + j3.toString());
                 return j3.toString();
             }
         });
+//        composeData.print();
+        //转成一个数据
+        JavaDStream<String> temp = composeData.flatMap(new FlatMapFunction<Tuple2<String, String>, String>() {
+            @Override
+            public Iterator<String> call(Tuple2<String, String> stringStringTuple2) throws Exception {
+                /*String s = stringStringTuple2._2();
+                JSONObject j1 = JSONObject.fromObject(s);
+                if (s.length() > 300) {
+                    if (missingData.isEmpty()) {
+                        missingData.add(stringStringTuple2._2());
+                        System.out.println("hehe");
+                    } else {
+                        JSONObject j2 ;
+                        JSONObject j3 = new JSONObject();
+                        for (int i = 0; i < missingData.size(); i++) {
+                            j2 = JSONObject.fromObject(missingData.get(i));
+                            System.out.println("j2:"+j2);
+                            System.out.println("j1:"+j1);
 
-        JavaDStream<String> temp = composeData.flatMap(new FlatMapFunction<Tuple2<Long, String>, String>() {
+                            if (j1.getString("id").equals(j2.getString("id")) ) {
+                                if (j1.getInt("dataType") == 0){
+                                    System.out.println("myt:"+(j2.getLong("timestamp") - j1.getLong("timestamp")));
+                                } else {
+                                    System.out.println("myt:"+(j1.getLong("timestamp") - j2.getLong("timestamp")));
+                                }
+
+//                                missingData.remove(i);
+                            }
+                                *//*if (j1.getInt("dataType") == 0) {
+                                    Long interval = j2.getLong("timestamp") - j1.getLong("timestamp");
+//                                    System.out.println("j1:"+j1.toString()+"  j2:"+j2.toString());
+//                                    System.out.println("j2:"+j2.getLong("timestamp")+"   j1:"+j1.getLong("timestamp"));
+                                    j3.put("startTime", j1.getLong("timestamp"));
+                                    j3.put("interval", interval);
+                                    j3.put("serverId", j1.getString("serverId"));
+                                } else {
+                                    Long interval = j1.getLong("timestamp") - j2.getLong("timestamp");
+                                    j3.put("startTime", j1.getLong("timestamp"));
+                                    j3.put("interval", interval);
+                                    j3.put("serverId", j1.getString("serverId"));
+                                }
+                                list.add(j3);
+                            } else {
+                                missingData.add(stringStringTuple2._2());
+                            }*//*
+                        }
+                        missingData.add(stringStringTuple2._2());
+                    }
+                }*/
+                return Arrays.asList(stringStringTuple2._2()).iterator();
+            }
+        }).reduce(new Function2<String, String, String>() {
+            @Override
+            public String call(String s, String s2) throws Exception {
+                return s;
+            }
+        });
+
+//        temp.print();
+
+        /*JavaDStream<String> temp = composeData.flatMap(new FlatMapFunction<Tuple2<String, String>, String>() {
             @Override
             public Iterator<String> call(Tuple2<Long, String> longStringTuple2) throws Exception {
                 return Arrays.asList(longStringTuple2._2()).iterator();
@@ -107,20 +174,24 @@ public class StreamingHandler {
             public String call(String s, String s2) throws Exception {
                 return s;
             }
-        });
+        });*/
 
         JavaPairDStream<Integer, String> finalData = temp.mapToPair(new PairFunction<String, Integer, String>() {
             @Override
             public Tuple2<Integer, String> call(String s) throws Exception {
 //                System.out.println("start:"+start);
-                System.out.println("listSize:"+list.size());
+//                System.out.println("s" + s);
+//                System.out.println("length" + s.length());
+//                System.out.println("listSize:"+list.size());
                 System.out.println(start);
-                System.out.println(end);
+//                System.out.println(end);
                 if (start != end && start !=0 && end != 0) {
                     list.add(start);
                     list.add(end);
                 }
+                System.out.println("list:" + list);
                 realTimePost.sendPost(url, list.toString());
+//                System.out.println(list.toString());
                 list.clear();
                 start = 0;
                 end = 0;
